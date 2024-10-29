@@ -72,7 +72,7 @@ len=17  num=84  rssi=-81  lqi=108 crc=1
 
 //=========================== defines =========================================
 
-#define LENGTH_PACKET        125+LENGTH_CRC // maximum length is 127 bytes
+#define LENGTH_PACKET        127 // maximum length is 127 bytes
 #define CHANNEL              17             // 24ghz: 11 = 2.405GHz, subghz: 11 = 865.325 in  FSK operating mode #1
 #define LENGTH_SERIAL_FRAME  16              // length of the serial frame
 
@@ -187,11 +187,15 @@ int mote_main(void) {
 			
 			app_vars.uart_txFrame[i++] = app_vars.rxpk_buf[0]; // address MSB
 			app_vars.uart_txFrame[i++] = app_vars.rxpk_buf[1]; // address MSB
-			app_vars.uart_txFrame[i++] = ' ';
-			app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count >> 24);
-			app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count >> 16);
-			app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count >> 8);
-			app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count);
+			app_vars.uart_txFrame[i++] = app_vars.rxpk_buf[2]; // address MSB
+			app_vars.uart_txFrame[i++] = app_vars.rxpk_buf[3]; // address MSB
+			app_vars.uart_txFrame[i++] = app_vars.rxpk_buf[4]; // address MSB
+			app_vars.uart_txFrame[i++] = app_vars.rxpk_buf[5]; // address MSB
+			//app_vars.uart_txFrame[i++] = ' ';
+			//app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count >> 24);
+			//app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count >> 16);
+			//app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count >> 8);
+			//app_vars.uart_txFrame[i++] = (uint8_t)(app_vars.count);
 
 			//app_vars.uart_txFrame[i++] = '\r';
 			app_vars.uart_txFrame[i++] = '\n';
@@ -249,24 +253,25 @@ void cb_endFrame(PORT_TIMER_WIDTH timestamp) {
     // check the frame is sent by radio_tx project
     expectedFrame = TRUE;
 
-    /*if (app_vars.rxpk_len>LENGTH_PACKET){
+    if (app_vars.rxpk_len>LENGTH_PACKET){
         expectedFrame = FALSE;
-    } else {
-        for(i=1;i<10;i++){
-            if(app_vars.rxpk_buf[i]!=i){
+    } 
+	else {
+        //for(i=1;i<10;i++){
+            if(app_vars.rxpk_buf[0]!='1'){
                 expectedFrame = FALSE;
-                break;
+                //break;
             }
-        }
+        //}
     }
 
     // read the packet number
-    app_vars.rxpk_num = app_vars.rxpk_buf[0];*/
+    app_vars.rxpk_num = app_vars.rxpk_buf[0];
 
     // toggle led if the frame is expected
     if (expectedFrame){
         // indicate I just received a packet from bsp_radio_tx mote
-		app_vars.count = board_timer_get();
+		//app_vars.count = board_timer_get();
         app_vars.rxpk_done = 1;
 
         leds_debug_toggle();

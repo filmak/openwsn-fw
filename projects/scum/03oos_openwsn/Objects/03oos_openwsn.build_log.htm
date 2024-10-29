@@ -22,39 +22,19 @@ Dialog DLL:      TARMCM1.DLL V1.14.3.0
  
 <h2>Project:</h2>
 C:\Users\fmaksimo\openwsn-develop-scum\openwsn-fw\projects\scum\03oos_openwsn\03oos_openwsn.uvprojx
-Project File Date:  06/02/2022
+Project File Date:  05/25/2023
 
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'Target SCuM'
-compiling 03oos_openwsn.c...
-compiling radio.c...
-..\..\..\bsp\boards\scum\radio.c(142): warning:  #223-D: function "printf" declared implicitly
-      printf("rx setting %d tx setting %d\r\n", freq_setting_rx[0] & 0x001f, freq_setting_tx[0] & 0x001f);
-..\..\..\bsp\boards\scum\radio.c(302): warning:  #513-D: a value of type "uint8_t *" cannot be assigned to an entity of type "char *"
-      RFCONTROLLER_REG__TX_DATA_ADDR  = &(radio_vars.radio_tx_buffer[0]);
-..\..\..\bsp\boards\scum\radio.c(350): warning:  #513-D: a value of type "uint8_t *" cannot be assigned to an entity of type "char *"
-      DMA_REG__RF_RX_ADDR         = &(radio_vars.radio_rx_buffer[0]);
-..\..\..\bsp\boards\scum\radio.c(377): warning:  #513-D: a value of type "uint8_t *" cannot be assigned to an entity of type "char *"
-      DMA_REG__RF_RX_ADDR         = &(radio_vars.radio_rx_buffer[0]);
-..\..\..\bsp\boards\scum\radio.c(423): warning:  #68-D: integer conversion resulted in a change of sign
-      *pRssi          = (int8_t)(read_RSSI()+RSSI_REFERENCE);
-..\..\..\bsp\boards\scum\radio.c(724): warning:  #550-D: variable "IF_estimate"  was set but never used
-      uint32_t IF_estimate;
-..\..\..\bsp\boards\scum\radio.c(725): warning:  #550-D: variable "LQI_chip_errors"  was set but never used
-      uint32_t LQI_chip_errors;
-..\..\..\bsp\boards\scum\radio.c(726): warning:  #550-D: variable "cdr_tau_value"  was set but never used
-       int16_t cdr_tau_value;
-..\..\..\bsp\boards\scum\radio.c(866): warning:  #223-D: function "printf" declared implicitly
-              printf("%X\r\n",chips[jj]);
-..\..\..\bsp\boards\scum\radio.c: 9 warnings, 0 errors
+compiling uart.c...
 linking...
 .\Objects\03oos_openwsn.axf: Warning: L6305W: Image does not have an entry point. (Not specified or not set due to multiple choices.)
-Program Size: Code=54716 RO-data=1368 RW-data=148 ZI-data=16940  
+Program Size: Code=54876 RO-data=1368 RW-data=148 ZI-data=16940  
 Finished: 0 information, 1 warning and 0 error messages.
 After Build - User command #1: fromelf --bin .\Objects\03oos_openwsn.axf -o .\Objects\03oos_openwsn.bin
 After Build - User command #2: fromelf -cvf .\Objects\03oos_openwsn.axf -o .\Objects\disasm.txt
-".\Objects\03oos_openwsn.axf" - 0 Error(s), 10 Warning(s).
+".\Objects\03oos_openwsn.axf" - 0 Error(s), 1 Warning(s).
 
 <h2>Software Packages used:</h2>
 

@@ -85,6 +85,8 @@ void uart_setCTS(bool state){
 //=========================== interrupt handlers ==============================
 
 kick_scheduler_t uart_tx_isr(void) {
+	
+		printf("tx_isr\r\n");
     if (uart_vars.fXonXoffEscaping==0x01) {
         uart_vars.fXonXoffEscaping = 0x00;
         UART_REG__TX_DATA = uart_vars.xonXoffEscapedByte^XONXOFF_MASK;
@@ -97,7 +99,8 @@ kick_scheduler_t uart_tx_isr(void) {
 }
 
 kick_scheduler_t uart_rx_isr(void) {
-    if (uart_vars.rxCb != NULL){
+	
+		if (uart_vars.rxCb != NULL){
         uart_vars.rxCb();
     }
     return DO_NOT_KICK_SCHEDULER;
