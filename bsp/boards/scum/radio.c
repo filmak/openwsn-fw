@@ -12,6 +12,8 @@
 #include "leds.h"
 #include "memory_map.h"
 #include "scm3c_hw_interface.h"
+#include "channel.h"
+#include "tuning.h"
 
 //=========================== defines =========================================
 
@@ -107,16 +109,13 @@ signed short cdr_tau_history[11] = {0};
 
 // rx = 24458  tx= 24495
 
-uint16_t freq_setting_rx[16] = {(23<<10 | 23<<5 | 6), 25070, 25265, 25852, 26094, 26286, (24<<10 | 18<<5 | 18), 27091, 27306, 27449, 28109, 28252, 28466, 29078, 29291, 29456};
-uint16_t freq_setting_tx[16] = {(22<<10 | 21<<5 | 21), 25133, 25749, 25918, 26183, 26377, (24<<10 | 22<<5 | 20) , 27203, 27840, 28005, 28153, 28364, 28975, 29117, 29376, 29965};
-	
-//uint16_t freq_setting_rx[16] = {(23<<10 | 23<<5 | 6), 25070, 25265, 25852, 26094, 26286, (24<<10 | 20<<5 | 20), 27091, 27306, 27449, 28109, 28252, 28466, 29078, 29291, 29456};
-//uint16_t freq_setting_tx[16] = {(22<<10 | 21<<5 | 21), 25133, 25749, 25918, 26183, 26377, (24<<10 | 22<<5 | 7) , 27203, 27840, 28005, 28153, 28364, 28975, 29117, 29376, 29965};
+uint16_t freq_setting_rx[16] = {(23<<10 | 23<<5 | 6), 25070, 25265, 25852, 26094, 26286, (21<<10 | 28<<5 | 15), 27091, 27306, 27449, 28109, 28252, 28466, 29078, 29291, 29456};
+uint16_t freq_setting_tx[16] = {(22<<10 | 21<<5 | 21), 25133, 25749, 25918, 26183, 26377, (21<<10 | 25<<5 | 20), 27203, 27840, 28005, 28153, 28364, 28975, 29117, 29376, 29965};
 
 //=========================== prototypes ======================================
 
 void        setFrequencyTX(uint8_t channel);
-void        setFrequencyRX(uint8_t channel);
+void        setFrequencyRX(uint8_t channel, bool is_sync, bool is_ack);
 
 void        radio_calibration(
     uint32_t IF_estimate,
@@ -198,21 +197,23 @@ void radio_reset(void) {
 //===== RF admin
 
 
-// Call this to setup RX, followed quickly by a TX ack
-// Note that due to the two ASC program cycles, this function takes about 27ms to execute (@5MHz HCLK)
-void setFrequencyRX(uint8_t channel){
-    uint8_t coarse;
-    uint8_t mid;
-    uint8_t fine;
-    
-    coarse = (uint8_t)((freq_setting_rx[channel-11]>>10) & 0x001f);
-    mid    = (uint8_t)((freq_setting_rx[channel-11]>>5)  & 0x001f);
-    fine   = (uint8_t)( freq_setting_rx[channel-11]      & 0x001f);
-
-    LC_FREQCHANGE(coarse,mid,fine);
-    
+// Set the frequency for RX.
+static inline void setFrequencyRX(const uint8_t channel, const bool is_sync, const bool is_ack) {
+    tuning_code_t tuning_code;
+    channel_get_tuning_code(channel, CHANNEL_MODE_RX, &tuning_code);
+    if (is_sync == TRUE) {
+        tuning_code.fine += 0;
+    } else if (is_ack == TRUE) {
+        tuning_code.fine += 3;
+    } else {
+        // Fil discovered that for a RX guard time of less than 10 ms, the fine
+        // code should be increased by 5 LSBs.
+        tuning_code.fine += 7;
+    }
+    tuning_tune_radio(&tuning_code);
 }
 
+<<<<<<< HEAD
 void setGTFrequencyRX(uint8_t channel){
     uint8_t coarse;
     uint8_t mid;
@@ -240,25 +241,42 @@ void setFrequencyTX(uint8_t channel){
     fine   = (uint8_t)( freq_setting_tx[channel-11]      & 0x001f);
 
     LC_FREQCHANGE(coarse,mid,fine);
+=======
+// Set the frequency for TX.
+static inline void setFrequencyTX(const uint8_t channel) {
+    tuning_code_t tuning_code;
+    channel_get_tuning_code(channel, CHANNEL_MODE_TX, &tuning_code);
+    tuning_tune_radio(&tuning_code);
+>>>>>>> dcffb75f936922b7e47ff2f9d7eba688afa2d4fe
 }
 
-void radio_setFrequency(uint8_t frequency, radio_freq_t tx_or_rx) {
+void radio_setFrequency(const uint8_t frequency, const radio_freq_t tx_or_rx) {
     // change state
     radio_vars.state = RADIOSTATE_SETTING_FREQUENCY;
     
-//    radio_vars.current_frequency = frequency;
+    // radio_vars.current_frequency = frequency;
     radio_vars.current_frequency = DEFAULT_FREQ;
     
-    switch(tx_or_rx){
-    case FREQ_TX:
-        setFrequencyTX(radio_vars.current_frequency);
-        break;
-    case FREQ_RX:
-        setFrequencyRX(radio_vars.current_frequency);
-        break;
-    default:
-        // shouldn't happen
-        break;
+    switch (tx_or_rx) {
+        case FREQ_TX: {
+            setFrequencyTX(radio_vars.current_frequency);
+            break;
+        }
+        case FREQ_RX: {
+            setFrequencyRX(radio_vars.current_frequency, /*is_sync=*/FALSE, /*is_ack=*/FALSE);
+            break;
+        }
+        case FREQ_RX_SYNC: {
+            setFrequencyRX(radio_vars.current_frequency, /*is_sync=*/TRUE, /*is_ack=*/FALSE);
+            break;
+        }
+        case FREQ_RX_ACK: {
+            setFrequencyRX(radio_vars.current_frequency, /*is_sync=*/FALSE, /*is_ack=*/TRUE);
+            break;
+        }
+        default: {
+            break;
+        }
     }
     
     // change state

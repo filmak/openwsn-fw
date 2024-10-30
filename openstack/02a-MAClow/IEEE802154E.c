@@ -19,6 +19,15 @@
 #include "openrandom.h"
 #include "msf.h"
 
+#ifdef SCUM
+#include "channel.h"
+#include "channel_cal.h"
+#include "memory_map.h"
+#include "scm3c_hw_interface.h"
+#include "tuning.h"
+#include "tuning_feedback.h"
+#endif  // defined(SCUM)
+
 //=========================== definition ======================================
 
 //=========================== variables =======================================
@@ -194,6 +203,12 @@ void ieee154e_init(void) {
 
     resetStats();
     ieee154e_stats.numDeSync = 0;
+
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+    if (channel_cal_init() == FALSE) {
+        printf("Failed to initialize channel calibration.\n");
+    }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
 
     // switch radio on
     radio_rfOn();
@@ -505,6 +520,10 @@ This function executes in ISR mode.
 */
 void ieee154e_endOfFrame(PORT_TIMER_WIDTH capturedTime) {
     PORT_TIMER_WIDTH referenceTime = capturedTime - ieee154e_vars.startOfSlotReference;
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+    uint32_t if_estimate = read_IF_estimate();
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+
     if (ieee154e_vars.isSync == FALSE) {
         activity_synchronize_endOfFrame(referenceTime);
     } else {
@@ -533,6 +552,12 @@ void ieee154e_endOfFrame(PORT_TIMER_WIDTH capturedTime) {
         }
     }
     ieee154e_dbg.num_endOfFrame++;
+
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+    if (channel_cal_rx_calibrated() == TRUE) {
+        tuning_feedback_adjust_rx(ieee154e_vars.freq, if_estimate);
+    }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
 }
 
 //======= misc
@@ -616,7 +641,7 @@ port_INLINE void activity_synchronize_newSlot(void) {
 #endif
 
         // configure the radio to listen to the frequency
-        radio_setFrequency(ieee154e_vars.freq, FREQ_RX);
+        radio_setFrequency(ieee154e_vars.freq, FREQ_RX_SYNC);
 
 #ifdef SLOT_FSM_IMPLEMENTATION_MULTIPLE_TIMER_INTERRUPT
         sctimer_setCapture(ACTION_RX_SFD_DONE);
@@ -627,7 +652,13 @@ port_INLINE void activity_synchronize_newSlot(void) {
         radio_rxEnable();
         
         for (i=0;i<100;i++);
-        
+
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+        if (channel_cal_rx_calibrated() == FALSE) {
+            channel_cal_rx_start();
+        }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+
         radio_rxNow();
     } else {
         // I'm listening last slot
@@ -639,24 +670,22 @@ port_INLINE void activity_synchronize_newSlot(void) {
         sctimer_setCapture(ACTION_RX_DONE);
 #endif
 
+#if !(IEEE802154E_SINGLE_CHANNEL)
         if (ieee154e_vars.asn.bytes0and1 % (NUM_CHANNELS * EB_PORTION) == 0) {
             // turn off the radio (in case it wasn't yet)
             radio_rfOff();
 
             // update record of current channel
-#if IEEE802154E_SINGLE_CHANNEL
-            ieee154e_vars.freq = IEEE802154E_SINGLE_CHANNEL;
-#else
             ieee154e_vars.freq = (openrandom_get16b() & 0x0F) + 11;
-#endif
 
             // configure the radio to listen to the frequency
-            radio_setFrequency(ieee154e_vars.freq, FREQ_RX);
+            radio_setFrequency(ieee154e_vars.freq, FREQ_RX_SYNC);
         }
 
         // switch on the radio in Rx mode.
         radio_rxEnable();
         radio_rxNow();
+#endif
     }
 
     // if I'm already in S_SYNCLISTEN, while not synchronized, but the synchronizing channel has been changed, change
@@ -669,7 +698,7 @@ port_INLINE void activity_synchronize_newSlot(void) {
         ieee154e_vars.freq = calculateFrequency(ieee154e_vars.singleChannel);
 
         // configure the radio to listen to the default synchronizing channel
-        radio_setFrequency(ieee154e_vars.freq, FREQ_RX);
+        radio_setFrequency(ieee154e_vars.freq, FREQ_RX_SYNC);
 
 #ifdef SLOT_FSM_IMPLEMENTATION_MULTIPLE_TIMER_INTERRUPT
         sctimer_setCapture(ACTION_RX_SFD_DONE);
@@ -835,6 +864,15 @@ port_INLINE void activity_synchronize_endOfFrame(PORT_TIMER_WIDTH capturedTime) 
             break;
         }
 
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+        if (channel_cal_rx_calibrated() == FALSE) {
+            tuning_code_t tuning_code;
+            channel_cal_rx_end();
+            channel_cal_rx_get_tuning_code(&tuning_code);
+            channel_set_tuning_code(ieee154e_vars.freq, CHANNEL_MODE_RX, &tuning_code);
+        }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+
         // turn off the radio
         radio_rfOff();
 
@@ -868,6 +906,9 @@ port_INLINE void activity_synchronize_endOfFrame(PORT_TIMER_WIDTH capturedTime) 
 
     } while (0);
 
+    // turn off the radio
+    radio_rfOff();
+
     // free the (invalid) received data buffer so RAM memory can be recycled
     openqueue_freePacketBuffer(ieee154e_vars.dataReceived);
 
@@ -875,7 +916,12 @@ port_INLINE void activity_synchronize_endOfFrame(PORT_TIMER_WIDTH capturedTime) 
     ieee154e_vars.dataReceived = NULL;
 
     // return to listening state
+    UART_REG__TX_DATA = 'Y';
+    UART_REG__TX_DATA = '\n';
     changeState(S_SYNCLISTEN);
+    radio_setFrequency(ieee154e_vars.freq, FREQ_RX_SYNC);
+    radio_rxEnable();
+    radio_rxNow();
 }
 
 port_INLINE bool ieee154e_processIEs(OpenQueueEntry_t* pkt, uint16_t* lenIE) {
@@ -936,7 +982,9 @@ port_INLINE void activity_ti1ORri1(void) {
                       (errorparameter_t)ieee154e_vars.slotOffset,
                       (errorparameter_t)0);
 #ifdef SCUM_DEBUG
-      printf("desync %d %d\r\n", ieee154e_vars.asn.bytes2and3, ieee154e_vars.asn.bytes0and1);
+            // printf("desync %d %d\r\n", ieee154e_vars.asn.bytes2and3, ieee154e_vars.asn.bytes0and1);
+            UART_REG__TX_DATA = 'D';
+            UART_REG__TX_DATA = '\n';
 #endif
 
             // update the statistics
@@ -1052,6 +1100,8 @@ port_INLINE void activity_ti1ORri1(void) {
             } else {
                 // change state
                 changeState(S_TXDATAOFFSET);
+                UART_REG__TX_DATA = 'U';
+                UART_REG__TX_DATA = '\n';
                 // change owner
                 ieee154e_vars.dataToSend->owner = COMPONENT_IEEE802154E;
                 if (couldSendEB == TRUE) { // I will be sending an EB copy synch IE -- should be Little endian?
@@ -1089,6 +1139,13 @@ port_INLINE void activity_ti1ORri1(void) {
                 }
                 
                 // configure the radio to listen to the default synchronizing channel
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+                if (channel_cal_tx_calibrated() == FALSE) {
+                    tuning_code_t tuning_code;
+                    channel_cal_tx_get_tuning_code(&tuning_code);
+                    channel_set_tuning_code(ieee154e_vars.freq, CHANNEL_MODE_TX, &tuning_code);
+                }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
                 radio_setFrequency(ieee154e_vars.freq, FREQ_TX);
 
                 // set the tx buffer address and length register.(packet is NOT loaded at this moment)
@@ -1193,6 +1250,14 @@ port_INLINE void activity_ti2(void) {
     }
 
     // configure the radio to listen to the default synchronizing channel
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+    if (channel_cal_tx_calibrated() == FALSE) {
+        tuning_code_t tuning_code;
+        channel_cal_tx_get_tuning_code(&tuning_code);
+        channel_set_tuning_code(ieee154e_vars.freq, CHANNEL_MODE_TX, &tuning_code);
+
+    }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
     radio_setFrequency(ieee154e_vars.freq, FREQ_TX);
 
     // load the packet in the radio's Tx buffer
@@ -1322,6 +1387,8 @@ port_INLINE void activity_ti5(PORT_TIMER_WIDTH capturedTime) {
     }
 
     if (listenForAck == TRUE) {
+        UART_REG__TX_DATA = 'K';
+        UART_REG__TX_DATA = '\n';
 #ifdef SLOT_FSM_IMPLEMENTATION_MULTIPLE_TIMER_INTERRUPT
         // 1. schedule timer for enabling receiving
         // arm tt5
@@ -1335,7 +1402,7 @@ port_INLINE void activity_ti5(PORT_TIMER_WIDTH capturedTime) {
         sctimer_setCapture(ACTION_RX_DONE);
 
         // configure the radio to listen to the default synchronizing channel
-        radio_setFrequency(ieee154e_vars.freq, FREQ_RX);
+        radio_setFrequency(ieee154e_vars.freq, FREQ_RX_ACK);
 #else
         // arm tt5
         opentimers_scheduleAbsolute(
@@ -1351,6 +1418,8 @@ port_INLINE void activity_ti5(PORT_TIMER_WIDTH capturedTime) {
 #endif
     } else {
         // indicate succesful Tx to schedule to keep statistics
+        UART_REG__TX_DATA = 'S';
+        UART_REG__TX_DATA = '\n';
         schedule_indicateTx(&ieee154e_vars.asn, TRUE);
         // indicate to upper later the packet was sent successfully
         notif_sendDone(ieee154e_vars.dataToSend, E_SUCCESS);
@@ -1379,7 +1448,7 @@ port_INLINE void activity_ti6(void) {
     );
 
     // configure the radio to listen to the default synchronizing channel
-    radio_setFrequency(ieee154e_vars.freq, FREQ_RX);
+    radio_setFrequency(ieee154e_vars.freq, FREQ_RX_ACK);
 
     radio_rxEnable();
 #endif
@@ -1424,9 +1493,21 @@ port_INLINE void activity_ti7(void) {
 port_INLINE void activity_tie5(void) {
     // indicate transmit failed to schedule to keep stats
     schedule_indicateTx(&ieee154e_vars.asn, FALSE);
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+        if (channel_cal_tx_calibrated() == FALSE) {
+            channel_cal_tx_handle_failure();
+        }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
 
-    // decrement transmits left counter
-    ieee154e_vars.dataToSend->l2_retriesLeft--;
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+    if (channel_cal_tx_calibrated() == TRUE) {
+        // decrement transmits left counter
+        ieee154e_vars.dataToSend->l2_retriesLeft--;
+    }
+#else   // !(defined(SCUM) && defined(CHANNEL_CAL_ENABLED))
+     // decrement transmits left counter
+     ieee154e_vars.dataToSend->l2_retriesLeft--;
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
 
     if (ieee154e_vars.dataToSend->l2_retriesLeft == 0) {
         // indicate tx fail if no more retries left
@@ -1438,6 +1519,9 @@ port_INLINE void activity_tie5(void) {
 
     // reset local variable
     ieee154e_vars.dataToSend = NULL;
+
+    UART_REG__TX_DATA = 'E';
+    UART_REG__TX_DATA = '\n';
 
     // abort
     endSlot();
@@ -1599,11 +1683,16 @@ port_INLINE void activity_ti9(PORT_TIMER_WIDTH capturedTime) {
 
         if (idmanager_getIsDAGroot() == FALSE &&
             icmpv6rpl_isPreferredParent(&(ieee154e_vars.ackReceived->l2_nextORpreviousHop))) {
-            //synchronizeAck(ieee802514_header.timeCorrection);
+            synchronizeAck(ieee802514_header.timeCorrection);
         }
 
         // inform schedule of successful transmission
         schedule_indicateTx(&ieee154e_vars.asn, TRUE);
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+        if (channel_cal_tx_calibrated() == FALSE) {
+            channel_cal_tx_end();
+        }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
 
         // inform upper layer
         notif_sendDone(ieee154e_vars.dataToSend, E_SUCCESS);
@@ -1620,16 +1709,11 @@ port_INLINE void activity_ti9(PORT_TIMER_WIDTH capturedTime) {
 
     // official end of Tx slot
     endSlot();
-#ifdef SCUM_DEBUG
-    printf("ack received\r\n");
-#endif
 }
 
 //======= RX
 
 port_INLINE void activity_ri2(void) {
-    
-    uint32_t i;
     // change state
     changeState(S_RXDATAPREPARE);
 
@@ -1763,6 +1847,8 @@ port_INLINE void activity_ri5(PORT_TIMER_WIDTH capturedTime) {
             isr_ieee154e_newSlot                              // callback
     );
 #endif
+    uint32_t if_estimate;
+    if_estimate = read_IF_estimate();
     // turn off the radio
     radio_rfOff();
     ieee154e_vars.radioOnTics += sctimer_readCounter() - ieee154e_vars.radioOnInit;
@@ -1791,6 +1877,9 @@ port_INLINE void activity_ri5(PORT_TIMER_WIDTH capturedTime) {
                 &ieee154e_vars.dataReceived->l1_lqi,
                 &ieee154e_vars.dataReceived->l1_crc
         );
+
+        UART_REG__TX_DATA = 'R';
+        UART_REG__TX_DATA = '\n';
 
         // break if wrong length
         if (ieee154e_vars.dataReceived->length < LENGTH_CRC ||
@@ -1883,7 +1972,7 @@ port_INLINE void activity_ri5(PORT_TIMER_WIDTH capturedTime) {
         // record the timeCorrection and print out at end of slot
         ieee154e_vars.dataReceived->l2_timeCorrection = (PORT_SIGNED_INT_WIDTH)(
                 (PORT_SIGNED_INT_WIDTH) TsTxOffset - (PORT_SIGNED_INT_WIDTH) ieee154e_vars.syncCapturedTime);
-        
+
 
         // check if ack requested
         if (ieee802514_header.ackRequested == 1 && ieee154e_vars.isAckEnabled == TRUE) {
@@ -2119,6 +2208,8 @@ port_INLINE void activity_ri7(void) {
     // give the 'go' to transmit
     radio_txNow();
 #endif
+    UART_REG__TX_DATA = 'Z';
+    UART_REG__TX_DATA = '\n';
 }
 
 port_INLINE void activity_rie5(void) {
@@ -2630,10 +2721,12 @@ void synchronizePacket(PORT_TIMER_WIDTH timeReceived) {
         LOG_WARNING(COMPONENT_IEEE802154E, ERR_LARGE_TIMECORRECTION,
                 (errorparameter_t) timeCorrection,
                 (errorparameter_t) 0);
-        
+
     }
 #ifdef SCUM_DEBUG
-    printf("pkt sync in network %d us\r\n", timeCorrection*2);
+    // printf("pkt sync in network %d us\r\n", timeCorrection*2);
+    UART_REG__TX_DATA = '*';
+    UART_REG__TX_DATA = '\n';
 #endif
 
     // update the stats
@@ -2679,9 +2772,11 @@ void synchronizeAck(PORT_SIGNED_INT_WIDTH timeCorrection) {
                 (errorparameter_t) timeCorrection,
                 (errorparameter_t) 1);
     }
-            
+
 #ifdef SCUM_DEBUG
-    printf("ack sync in network %d us\r\n", timeCorrection*2);
+    // printf("ack sync in network %d us\r\n", timeCorrection*2);
+    UART_REG__TX_DATA = 'A';
+    UART_REG__TX_DATA = '\n';
 #endif
 
     // update the stats
@@ -2777,7 +2872,7 @@ different channel offsets in the same slot.
 \returns The calculated frequency channel, an integer between 11 and 26.
 */
 port_INLINE uint8_t calculateFrequency(uint8_t channelOffset) {
-    if (ieee154e_vars.singleChannel >= 11 && ieee154e_vars.singleChannel <= 26 ) {
+    if (ieee154e_vars.singleChannel >= MIN_CHANNEL && ieee154e_vars.singleChannel <= MAX_CHANNEL) {
         return ieee154e_vars.singleChannel; // single channel
     } else {
         // channel hopping enabled, use the channel depending on hopping template
@@ -2889,6 +2984,11 @@ void endSlot(void) {
         // if everything went well, dataToSend was set to NULL in ti9, getting here means transmit failed
         // indicate Tx fail to schedule to update stats
         schedule_indicateTx(&ieee154e_vars.asn, FALSE);
+#if defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
+        if (channel_cal_tx_calibrated() == FALSE) {
+            channel_cal_tx_handle_failure();
+        }
+#endif  // defined(SCUM) && defined(CHANNEL_CAL_ENABLED)
 
         //decrement transmits left counter
         ieee154e_vars.dataToSend->l2_retriesLeft--;

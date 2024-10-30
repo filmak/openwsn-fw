@@ -39,14 +39,16 @@ static const uint8_t ebIEsBytestream[] = {
 #define EB_IE_LEN                   28
 
 #define NUM_CHANNELS                16  // number of channels to channel hop on
-#define TXRETRIES                    8  // number of MAC retries before declaring failed
+#define MIN_CHANNEL                 11  // minimum channel
+#define MAX_CHANNEL                 26  // maximum channel
+#define TXRETRIES                   16  // number of MAC retries before declaring failed
 #define TX_POWER                    31  // 1=-25dBm, 31=0dBm (max value)
 #define RESYNCHRONIZATIONGUARD       5  // in 32kHz ticks. min distance to the end of the slot to successfully synchronize
 #ifndef EB_PORTION
 #define EB_PORTION                   2 // set EB on minimal cell for 1/EB_PORTION portion
 #endif
 #ifndef MAXKAPERIOD
-#define MAXKAPERIOD               1000  // in slots: 1500@20ms per slot -> ~30 seconds. Max value used by adaptive synchronization.
+#define MAXKAPERIOD                428  // in slots: 1500@20ms per slot -> ~30 seconds. Max value used by adaptive synchronization.
 #endif
 #ifndef DESYNCTIMEOUT
 #define DESYNCTIMEOUT              500  // in slots: 1750@20ms per slot -> ~35 seconds. A larger DESYNCTIMEOUT is needed if using a larger KATIMEOUT.
@@ -238,7 +240,7 @@ enum ieee154e_linkOption_enum {
 #define DURATION_rt7 ieee154e_vars.lastCapturedTime+TsTxAckDelay-delayTx+wdRadioTx
 #define DURATION_rt8 ieee154e_vars.lastCapturedTime+wdAckDuration
 // serialInhibit
-#define DURATION_si  ieee154e_vars.slotDuration-SERIALINHIBITGUARD
+#define DURATION_si  ieee154e_vars.slotDuration-3*SERIALINHIBITGUARD
 
 //=========================== typedef =========================================
 
@@ -361,4 +363,3 @@ bool debugPrint_macStats(void);
 */
 
 #endif /* OPENWSN_IEEE802154E_H */
-

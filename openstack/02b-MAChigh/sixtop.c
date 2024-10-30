@@ -18,6 +18,10 @@
 #include "schedule.h"
 #include "msf.h"
 
+#ifdef SCUM
+#include "memory_map.h"
+#endif  // defined(SCUM)
+
 //=========================== define ==========================================
 
 // in seconds: sixtop maintaince is called every 30 seconds
@@ -175,11 +179,14 @@ owerror_t sixtop_request(
     // filter parameters: handler, status and neighbor
     if (sixtop_vars.six2six_state != SIX_STATE_IDLE || neighbor == NULL) {
         // neighbor can't be none or previous transcation doesn't finish yet
+        // printf("sixtop is still in state %d\n", sixtop_vars.six2six_state);
         return E_FAIL;
     }
     
 #ifdef SCUM_DEBUG
-    printf("sixtop operation code %d\r\n", code);
+    // printf("sixtop operation code %d\r\n", code);
+    UART_REG__TX_DATA = 's';
+    UART_REG__TX_DATA = '\n';
 #endif
 
     if (openqueue_getNum6PReq(neighbor) > 0) {
@@ -661,7 +668,7 @@ void sixtop_timeout_timer_cb(opentimers_id_t id) {
 //======= EB/KA task
 
 void timer_sixtop_sendEb_fired(void) {
-    if (openrandom_get16b() < (0xffff / EB_PORTION)) {
+    if (idmanager_getIsDAGroot()) {
         sixtop_sendEB();
     }
 }
@@ -901,7 +908,9 @@ void sixtop_six2six_sendDone(OpenQueueEntry_t *msg, owerror_t error) {
     if (msg->l2_sixtop_messageType == SIXTOP_CELL_REQUEST) {
         
 #ifdef SCUM_DEBUG       
-        printf("sixtop senddone %d state %d \r\n", error, sixtop_vars.six2six_state);
+        // printf("sixtop senddone %d state %d \r\n", error, sixtop_vars.six2six_state);
+        UART_REG__TX_DATA = 'd';
+        UART_REG__TX_DATA = '\n';
 #endif
         
         if (error == E_FAIL) {
@@ -1479,7 +1488,9 @@ void sixtop_six2six_notifyReceive(
     if (type == SIXTOP_CELL_RESPONSE) {
         // this is a 6p response message
 #ifdef SCUM_DEBUG
-        printf("six top response received: RC %d status %d\r\n", code, sixtop_vars.six2six_state);
+        // printf("six top response received: RC %d status %d\r\n", code, sixtop_vars.six2six_state);
+        UART_REG__TX_DATA = 'X';
+        UART_REG__TX_DATA = '\n';
 #endif
 
         // if the code is SUCCESS
@@ -1506,7 +1517,9 @@ void sixtop_six2six_notifyReceive(
                     );
                     
 #ifdef SCUM_DEBUG
-                    printf("six top add cell\r\n");
+                    // printf("six top add cell\r\n");
+                    UART_REG__TX_DATA = 'C';
+                    UART_REG__TX_DATA = '\n';
 #endif
                     
                     neighbors_updateSequenceNumber(&(pkt->l2_nextORpreviousHop));
@@ -1667,7 +1680,9 @@ bool sixtop_addCells(
     }    
     
 #ifdef  SCUM_DEBUG
-    printf("slot add %d\r\n", hasCellsAdded);
+    // printf("slot add %d num %d slot %d\r\n", hasCellsAdded, i, cellList[i - 1].slotoffset);
+    UART_REG__TX_DATA = 'a';
+    UART_REG__TX_DATA = '\n';
 #endif
     return hasCellsAdded;
 }
